@@ -1,0 +1,29 @@
+# Dependencies
+node_modules/
+
+# Environment variables (NEVER commit .env to git!)
+.env
+.env.local
+.env.production
+
+# Logs
+logs/
+*.log
+npm-debug.log*
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# IDE
+.idea/
+.vscode/
+
+# Uploads (optional - keep if you want to persist uploads)
+# uploads/*
+# !uploads/.gitkeep
+# !uploads/README.md
+
+# Build output
+dist/
+build/
