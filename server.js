@@ -155,6 +155,7 @@ const transcriptionRoutes = require('./routes/transcriptionRoutes');
 const coupleGoalRoutes = require('./routes/coupleGoalRoutes');
 const activityHeatmapRoutes = require('./routes/activityHeatmapRoutes');
 const silentCareRoutes = require('./routes/silentCareRoutes');
+const coupleGameRoutes = require('./routes/coupleGameRoutes');
 
 // ===========================================
 // Import Socket Handler
@@ -208,6 +209,7 @@ app.use('/api/transcription', transcriptionRoutes);
 app.use('/api/couple-goals', coupleGoalRoutes);
 app.use('/api/activity-heatmap', activityHeatmapRoutes);
 app.use('/api/silent-care', silentCareRoutes);
+app.use('/api/games', coupleGameRoutes);
 
 // ===========================================
 // Error Handling Middleware

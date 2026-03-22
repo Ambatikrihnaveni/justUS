@@ -347,6 +347,16 @@ const userSchema = new mongoose.Schema({
             type: Date,
             default: null
         }
+    },
+
+    // Password Reset Fields
+    passwordResetCode: {
+        type: String,
+        default: null
+    },
+    passwordResetExpires: {
+        type: Date,
+        default: null
     }
 });
 

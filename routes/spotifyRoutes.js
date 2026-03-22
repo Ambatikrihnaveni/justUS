@@ -14,7 +14,8 @@ const spotifyService = require('../services/spotifyService');
 // ===========================================
 router.get('/auth', protect, (req, res) => {
     try {
-        const authUrl = spotifyService.getAuthorizationUrl(req.user.id);
+        const platform = req.query.platform || 'web'; // 'web' or 'mobile'
+        const authUrl = spotifyService.getAuthorizationUrl(req.user.id, platform);
         res.json({
             success: true,
             authUrl
@@ -33,14 +34,31 @@ router.get('/auth', protect, (req, res) => {
 // ===========================================
 router.get('/callback', async (req, res) => {
     try {
-        const { code, state: userId, error } = req.query;
+        const { code, state, error } = req.query;
+        
+        // Parse state - format: "userId:platform" or just "userId" for backwards compatibility
+        let userId, platform = 'web';
+        if (state && state.includes(':')) {
+            [userId, platform] = state.split(':');
+        } else {
+            userId = state;
+        }
+        
+        // Determine redirect URL based on platform
+        const getRedirectUrl = (params) => {
+            if (platform === 'mobile') {
+                return `justus://spotify-callback?${params}`;
+            }
+            const frontendUrl = process.env.FRONTEND_URL || 'http://localhost:3000';
+            return `${frontendUrl}/chat?${params}`;
+        };
 
         if (error) {
-            return res.redirect(`${process.env.FRONTEND_URL}/chat?spotify_error=${error}`);
+            return res.redirect(getRedirectUrl(`spotify_error=${error}`));
         }
 
         if (!code || !userId) {
-            return res.redirect(`${process.env.FRONTEND_URL}/chat?spotify_error=missing_params`);
+            return res.redirect(getRedirectUrl('spotify_error=missing_params'));
         }
 
         // Exchange code for tokens
@@ -61,10 +79,10 @@ router.get('/callback', async (req, res) => {
         });
 
         // Redirect back to frontend with success
-        res.redirect(`${process.env.FRONTEND_URL}/chat?spotify_connected=true`);
+        res.redirect(getRedirectUrl('spotify_connected=true'));
     } catch (error) {
         console.error('Spotify callback error:', error);
-        res.redirect(`${process.env.FRONTEND_URL}/chat?spotify_error=auth_failed`);
+        res.redirect(getRedirectUrl('spotify_error=auth_failed'));
     }
 });
 

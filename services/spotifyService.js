@@ -26,13 +26,13 @@ const SCOPES = [
 // ===========================================
 // Generate Authorization URL
 // ===========================================
-const getAuthorizationUrl = (userId) => {
+const getAuthorizationUrl = (userId, platform = 'web') => {
     const params = new URLSearchParams({
         client_id: process.env.SPOTIFY_CLIENT_ID,
         response_type: 'code',
         redirect_uri: process.env.SPOTIFY_REDIRECT_URI,
         scope: SCOPES,
-        state: userId, // Pass userId to link account after auth
+        state: `${userId}:${platform}`, // Pass userId and platform to link account after auth
         show_dialog: true
     });
 

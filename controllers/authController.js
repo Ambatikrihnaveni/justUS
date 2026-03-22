@@ -383,10 +383,204 @@ const updateFcmToken = async (req, res) => {
     }
 };
 
+// ===========================================
+// Forgot Password - Request password reset code
+// POST /api/auth/forgot-password
+// ===========================================
+
+const forgotPassword = async (req, res) => {
+    try {
+        const { email } = req.body;
+
+        if (!email) {
+            return res.status(400).json({
+                success: false,
+                message: 'Please provide your email address'
+            });
+        }
+
+        // Find user by email
+        const user = await User.findOne({ email: email.toLowerCase() });
+
+        if (!user) {
+            // Don't reveal if user exists or not for security
+            return res.status(200).json({
+                success: true,
+                message: 'If an account with that email exists, a reset code has been generated.'
+            });
+        }
+
+        // Generate 6-digit reset code
+        const resetCode = Math.floor(100000 + Math.random() * 900000).toString();
+        
+        // Set reset code and expiry (15 minutes)
+        user.passwordResetCode = resetCode;
+        user.passwordResetExpires = Date.now() + 15 * 60 * 1000; // 15 minutes
+        await user.save({ validateBeforeSave: false });
+
+        // Log the reset code (in production, this would be sent via email)
+        console.log('========================================');
+        console.log('🔐 PASSWORD RESET CODE');
+        console.log(`Email: ${user.email}`);
+        console.log(`Code: ${resetCode}`);
+        console.log(`Expires in: 15 minutes`);
+        console.log('========================================');
+
+        res.status(200).json({
+            success: true,
+            message: 'If an account with that email exists, a reset code has been generated.',
+            // In development, return the code for testing
+            ...(process.env.NODE_ENV !== 'production' && { resetCode })
+        });
+
+    } catch (error) {
+        console.error('Forgot password error:', error);
+        res.status(500).json({
+            success: false,
+            message: 'Error processing password reset request'
+        });
+    }
+};
+
+// ===========================================
+// Reset Password - Reset password with code
+// POST /api/auth/reset-password
+// ===========================================
+
+const resetPassword = async (req, res) => {
+    try {
+        const { email, resetCode, newPassword } = req.body;
+
+        if (!email || !resetCode || !newPassword) {
+            return res.status(400).json({
+                success: false,
+                message: 'Please provide email, reset code, and new password'
+            });
+        }
+
+        if (newPassword.length < 6) {
+            return res.status(400).json({
+                success: false,
+                message: 'Password must be at least 6 characters'
+            });
+        }
+
+        // Find user with valid reset code
+        const user = await User.findOne({
+            email: email.toLowerCase(),
+            passwordResetCode: resetCode,
+            passwordResetExpires: { $gt: Date.now() }
+        });
+
+        if (!user) {
+            return res.status(400).json({
+                success: false,
+                message: 'Invalid or expired reset code'
+            });
+        }
+
+        // Update password
+        user.password = newPassword;
+        user.passwordResetCode = null;
+        user.passwordResetExpires = null;
+        await user.save();
+
+        console.log(`🔓 Password reset successful for: ${user.email}`);
+
+        // Generate new token
+        const token = generateToken(user._id);
+
+        res.status(200).json({
+            success: true,
+            message: 'Password reset successful! You are now logged in.',
+            token,
+            user: {
+                _id: user._id,
+                name: user.name,
+                email: user.email,
+                avatar: user.avatar
+            }
+        });
+
+    } catch (error) {
+        console.error('Reset password error:', error);
+        res.status(500).json({
+            success: false,
+            message: 'Error resetting password'
+        });
+    }
+};
+
+// ===========================================
+// Change Password - Change password (logged in user)
+// PUT /api/auth/change-password
+// ===========================================
+
+const changePassword = async (req, res) => {
+    try {
+        const { currentPassword, newPassword } = req.body;
+        const userId = req.user._id;
+
+        if (!currentPassword || !newPassword) {
+            return res.status(400).json({
+                success: false,
+                message: 'Please provide current and new password'
+            });
+        }
+
+        if (newPassword.length < 6) {
+            return res.status(400).json({
+                success: false,
+                message: 'New password must be at least 6 characters'
+            });
+        }
+
+        // Get user with password
+        const user = await User.findById(userId).select('+password');
+
+        if (!user) {
+            return res.status(404).json({
+                success: false,
+                message: 'User not found'
+            });
+        }
+
+        // Verify current password
+        const isMatch = await user.comparePassword(currentPassword);
+        if (!isMatch) {
+            return res.status(401).json({
+                success: false,
+                message: 'Current password is incorrect'
+            });
+        }
+
+        // Update password
+        user.password = newPassword;
+        await user.save();
+
+        console.log(`🔐 Password changed for: ${user.email}`);
+
+        res.status(200).json({
+            success: true,
+            message: 'Password changed successfully!'
+        });
+
+    } catch (error) {
+        console.error('Change password error:', error);
+        res.status(500).json({
+            success: false,
+            message: 'Error changing password'
+        });
+    }
+};
+
 module.exports = {
     signup,
     login,
     getMe,
     getPartner,
-    updateFcmToken
+    updateFcmToken,
+    forgotPassword,
+    resetPassword,
+    changePassword
 };

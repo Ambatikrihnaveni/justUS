@@ -703,6 +703,198 @@ const initializeSocket = (io) => {
         });
 
         // ===========================================
+        // Couple Games Events
+        // ===========================================
+
+        // Invite partner to play a game
+        socket.on('game:invite', (data) => {
+            const { partnerId, gameType, gameName } = data;
+            console.log(`🎮 ${socket.user.name} inviting partner to play ${gameType}`);
+            
+            const partnerSocketId = onlineUsers.get(partnerId);
+            if (partnerSocketId) {
+                io.to(partnerSocketId).emit('game:invite', {
+                    from: userId,
+                    fromName: socket.user.name,
+                    gameType,
+                    gameName
+                });
+            } else {
+                socket.emit('game:partnerOffline');
+            }
+        });
+
+        // Accept game invite
+        socket.on('game:accept', (data) => {
+            const { partnerId, gameId, gameType } = data;
+            console.log(`🎮 ${socket.user.name} accepted game invite`);
+            
+            const partnerSocketId = onlineUsers.get(partnerId);
+            if (partnerSocketId) {
+                io.to(partnerSocketId).emit('game:accepted', {
+                    from: userId,
+                    fromName: socket.user.name,
+                    gameId,
+                    gameType
+                });
+            }
+        });
+
+        // Decline game invite
+        socket.on('game:decline', (data) => {
+            const { partnerId } = data;
+            
+            const partnerSocketId = onlineUsers.get(partnerId);
+            if (partnerSocketId) {
+                io.to(partnerSocketId).emit('game:declined', {
+                    from: userId,
+                    fromName: socket.user.name
+                });
+            }
+        });
+
+        // Game move (for turn-based games like Tic Tac Toe, Connect Four)
+        socket.on('game:move', (data) => {
+            const { partnerId, gameId, move, gameState } = data;
+            console.log(`🎮 ${socket.user.name} made a move in game ${gameId}`);
+            
+            const partnerSocketId = onlineUsers.get(partnerId);
+            if (partnerSocketId) {
+                io.to(partnerSocketId).emit('game:move', {
+                    from: userId,
+                    fromName: socket.user.name,
+                    gameId,
+                    move,
+                    gameState
+                });
+            }
+        });
+
+        // Submit choice (for simultaneous games like Rock Paper Scissors)
+        socket.on('game:choice', (data) => {
+            const { partnerId, gameId, choice, roundId } = data;
+            console.log(`🎮 ${socket.user.name} submitted choice for round ${roundId}`);
+            
+            const partnerSocketId = onlineUsers.get(partnerId);
+            if (partnerSocketId) {
+                io.to(partnerSocketId).emit('game:partnerChose', {
+                    from: userId,
+                    gameId,
+                    roundId,
+                    hasChosen: true
+                });
+            }
+        });
+
+        // Reveal choices (when both have chosen)
+        socket.on('game:reveal', (data) => {
+            const { partnerId, gameId, myChoice, result } = data;
+            
+            const partnerSocketId = onlineUsers.get(partnerId);
+            if (partnerSocketId) {
+                io.to(partnerSocketId).emit('game:reveal', {
+                    from: userId,
+                    gameId,
+                    partnerChoice: myChoice,
+                    result
+                });
+            }
+        });
+
+        // Send emoji clue (for Emoji Charades)
+        socket.on('game:emoji', (data) => {
+            const { partnerId, gameId, emojis, category } = data;
+            console.log(`🎮 ${socket.user.name} sent emoji clue`);
+            
+            const partnerSocketId = onlineUsers.get(partnerId);
+            if (partnerSocketId) {
+                io.to(partnerSocketId).emit('game:emoji', {
+                    from: userId,
+                    fromName: socket.user.name,
+                    gameId,
+                    emojis,
+                    category
+                });
+            }
+        });
+
+        // Guess answer (for word games)
+        socket.on('game:guess', (data) => {
+            const { partnerId, gameId, guess, isCorrect } = data;
+            
+            const partnerSocketId = onlineUsers.get(partnerId);
+            if (partnerSocketId) {
+                io.to(partnerSocketId).emit('game:guess', {
+                    from: userId,
+                    fromName: socket.user.name,
+                    gameId,
+                    guess,
+                    isCorrect
+                });
+            }
+        });
+
+        // Word chain - send word
+        socket.on('game:word', (data) => {
+            const { partnerId, gameId, word } = data;
+            
+            const partnerSocketId = onlineUsers.get(partnerId);
+            if (partnerSocketId) {
+                io.to(partnerSocketId).emit('game:word', {
+                    from: userId,
+                    fromName: socket.user.name,
+                    gameId,
+                    word
+                });
+            }
+        });
+
+        // Game over
+        socket.on('game:over', (data) => {
+            const { partnerId, gameId, winner, finalScore } = data;
+            console.log(`🎮 Game ${gameId} ended. Winner: ${winner || 'Draw'}`);
+            
+            const partnerSocketId = onlineUsers.get(partnerId);
+            if (partnerSocketId) {
+                io.to(partnerSocketId).emit('game:over', {
+                    from: userId,
+                    gameId,
+                    winner,
+                    finalScore
+                });
+            }
+        });
+
+        // Leave/quit game
+        socket.on('game:leave', (data) => {
+            const { partnerId, gameId } = data;
+            console.log(`🎮 ${socket.user.name} left game ${gameId}`);
+            
+            const partnerSocketId = onlineUsers.get(partnerId);
+            if (partnerSocketId) {
+                io.to(partnerSocketId).emit('game:partnerLeft', {
+                    from: userId,
+                    fromName: socket.user.name,
+                    gameId
+                });
+            }
+        });
+
+        // Request rematch
+        socket.on('game:rematch', (data) => {
+            const { partnerId, gameType } = data;
+            
+            const partnerSocketId = onlineUsers.get(partnerId);
+            if (partnerSocketId) {
+                io.to(partnerSocketId).emit('game:rematch', {
+                    from: userId,
+                    fromName: socket.user.name,
+                    gameType
+                });
+            }
+        });
+
+        // ===========================================
         // Disconnect Event
         // ===========================================
 

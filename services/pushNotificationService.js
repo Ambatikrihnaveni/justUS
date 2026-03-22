@@ -8,37 +8,81 @@ const admin = require('firebase-admin');
 // Initialize Firebase Admin SDK
 let firebaseInitialized = false;
 
+// Helper to properly format the private key
+const formatPrivateKey = (key) => {
+    if (!key) return null;
+    
+    // If key is already properly formatted with real newlines, return it
+    if (key.includes('-----BEGIN') && key.includes('\n')) {
+        return key;
+    }
+    
+    // Replace escaped newlines (\\n or \n as literal text) with actual newlines
+    let formattedKey = key
+        .replace(/\\\\n/g, '\n')  // Handle double-escaped \\n
+        .replace(/\\n/g, '\n')    // Handle single-escaped \n
+        .replace(/\n\n/g, '\n');  // Fix any double newlines
+    
+    // If the key doesn't have proper BEGIN/END markers after formatting, 
+    // it might be the raw key without headers - wrap it
+    if (!formattedKey.includes('-----BEGIN')) {
+        formattedKey = `-----BEGIN PRIVATE KEY-----\n${formattedKey}\n-----END PRIVATE KEY-----\n`;
+    }
+    
+    return formattedKey;
+};
+
 const initializeFirebase = () => {
     if (firebaseInitialized) return true;
     
     try {
-        // Check if service account is configured
+        // Check if service account is configured as full JSON
         if (process.env.FIREBASE_SERVICE_ACCOUNT) {
-            const serviceAccount = JSON.parse(process.env.FIREBASE_SERVICE_ACCOUNT);
-            admin.initializeApp({
-                credential: admin.credential.cert(serviceAccount)
-            });
-            firebaseInitialized = true;
-            console.log('🔥 Firebase Admin SDK initialized');
-            return true;
-        } else if (process.env.FIREBASE_PROJECT_ID) {
-            // Use individual environment variables
+            try {
+                const serviceAccount = JSON.parse(process.env.FIREBASE_SERVICE_ACCOUNT);
+                // Also format the private key in the JSON object
+                if (serviceAccount.private_key) {
+                    serviceAccount.private_key = formatPrivateKey(serviceAccount.private_key);
+                }
+                admin.initializeApp({
+                    credential: admin.credential.cert(serviceAccount)
+                });
+                firebaseInitialized = true;
+                console.log('🔥 Firebase Admin SDK initialized (from JSON)');
+                return true;
+            } catch (parseError) {
+                console.error('❌ Failed to parse FIREBASE_SERVICE_ACCOUNT JSON:', parseError.message);
+                // Fall through to try individual env vars
+            }
+        }
+        
+        // Use individual environment variables
+        if (process.env.FIREBASE_PROJECT_ID && process.env.FIREBASE_CLIENT_EMAIL && process.env.FIREBASE_PRIVATE_KEY) {
+            const privateKey = formatPrivateKey(process.env.FIREBASE_PRIVATE_KEY);
+            
+            if (!privateKey) {
+                console.warn('⚠️ Firebase private key is empty or invalid');
+                return false;
+            }
+            
             admin.initializeApp({
                 credential: admin.credential.cert({
                     projectId: process.env.FIREBASE_PROJECT_ID,
                     clientEmail: process.env.FIREBASE_CLIENT_EMAIL,
-                    privateKey: process.env.FIREBASE_PRIVATE_KEY?.replace(/\\n/g, '\n')
+                    privateKey: privateKey
                 })
             });
             firebaseInitialized = true;
-            console.log('🔥 Firebase Admin SDK initialized');
+            console.log('🔥 Firebase Admin SDK initialized (from env vars)');
             return true;
-        } else {
-            console.warn('⚠️ Firebase not configured - push notifications disabled');
-            return false;
         }
+        
+        console.warn('⚠️ Firebase not configured - push notifications disabled');
+        console.warn('   Set FIREBASE_SERVICE_ACCOUNT (JSON) or FIREBASE_PROJECT_ID + FIREBASE_CLIENT_EMAIL + FIREBASE_PRIVATE_KEY');
+        return false;
     } catch (error) {
         console.error('❌ Failed to initialize Firebase:', error);
+        // Don't crash the server - just disable push notifications
         return false;
     }
 };
