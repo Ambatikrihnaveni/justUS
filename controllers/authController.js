@@ -259,6 +259,7 @@ const getMe = async (req, res) => {
                 name: user.name,
                 email: user.email,
                 avatar: user.avatar,
+                silentCare: user.silentCare,
                 coupleId: user.coupleId,
                 createdAt: user.createdAt
             }
@@ -293,8 +294,8 @@ const getPartner = async (req, res) => {
 
         // Find the couple to get partner info
         const couple = await Couple.findById(currentUser.coupleId)
-            .populate('partner1', 'name email avatar createdAt')
-            .populate('partner2', 'name email avatar createdAt');
+            .populate('partner1', 'name email avatar createdAt silentCare lastSeen')
+            .populate('partner2', 'name email avatar createdAt silentCare lastSeen');
 
         if (!couple) {
             return res.status(404).json({
@@ -325,6 +326,8 @@ const getPartner = async (req, res) => {
                 name: partner.name,
                 email: partner.email,
                 avatar: partner.avatar,
+                silentCare: partner.silentCare,
+                lastSeen: partner.lastSeen,
                 createdAt: partner.createdAt
             }
         });
@@ -338,9 +341,52 @@ const getPartner = async (req, res) => {
     }
 };
 
+// ===========================================
+// Update FCM Token - Save push notification token
+// PUT /api/auth/fcm-token
+// ===========================================
+
+const updateFcmToken = async (req, res) => {
+    try {
+        const { fcmToken, platform } = req.body;
+        const userId = req.user._id;
+
+        if (!fcmToken) {
+            return res.status(400).json({
+                success: false,
+                message: 'FCM token is required'
+            });
+        }
+
+        // Update user's FCM token
+        await User.findByIdAndUpdate(userId, {
+            fcmToken,
+            deviceInfo: {
+                platform: platform || 'android',
+                lastUpdated: new Date()
+            }
+        });
+
+        console.log(`🔔 FCM token updated for user ${userId}`);
+
+        res.status(200).json({
+            success: true,
+            message: 'FCM token updated successfully'
+        });
+
+    } catch (error) {
+        console.error('Update FCM token error:', error);
+        res.status(500).json({
+            success: false,
+            message: 'Error updating FCM token'
+        });
+    }
+};
+
 module.exports = {
     signup,
     login,
     getMe,
-    getPartner
+    getPartner,
+    updateFcmToken
 };

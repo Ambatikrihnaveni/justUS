@@ -7,6 +7,8 @@ const jwt = require('jsonwebtoken');
 const User = require('../models/User');
 const Message = require('../models/Message');
 const Call = require('../models/Call');
+const { recordInteraction } = require('../controllers/streakController');
+const { sendMessageNotification, sendCallNotification, sendMissedCallNotification } = require('../services/pushNotificationService');
 
 // Store online users: Map<userId, socketId>
 const onlineUsers = new Map();
@@ -146,15 +148,36 @@ const initializeSocket = (io) => {
                 await newMessage.populate('senderId', 'name avatar');
                 await newMessage.populate('receiverId', 'name avatar');
 
+                // Record interaction for streak/miss-you tracking
+                if (socket.user.coupleId) {
+                    recordInteraction(socket.user.coupleId, 'chat');
+                }
+
                 // Send to receiver if online
                 if (isReceiverOnline) {
                     io.to(receiverId).emit('newMessage', newMessage);
+                } else {
+                    // Receiver is offline - send push notification
+                    try {
+                        const receiver = await User.findById(receiverId).select('fcmToken name');
+                        if (receiver?.fcmToken) {
+                            await sendMessageNotification(
+                                receiver.fcmToken,
+                                socket.user.name,
+                                message,
+                                type
+                            );
+                            console.log(`📲 Push notification sent to ${receiver.name}`);
+                        }
+                    } catch (pushError) {
+                        console.error('Push notification error:', pushError);
+                    }
                 }
 
                 // Also send back to sender for confirmation
                 socket.emit('messageSent', newMessage);
 
-                console.log(`📨 Message from ${socket.user.name} to ${receiverId} (${isReceiverOnline ? 'delivered' : 'pending'})`);
+                console.log(`📨 Message from ${socket.user.name} to ${receiverId} (${isReceiverOnline ? 'delivered' : 'pending+push'})`);
             } catch (error) {
                 console.error('Socket sendMessage error:', error);
                 socket.emit('messageError', { message: 'Failed to send message' });
@@ -215,9 +238,46 @@ const initializeSocket = (io) => {
             
             if (!targetSocketId) {
                 console.log(`📞 Target user ${to} is not online`);
+                
+                // Send push notification for incoming call
+                try {
+                    const receiver = await User.findById(to).select('fcmToken name');
+                    if (receiver?.fcmToken) {
+                        await sendCallNotification(
+                            receiver.fcmToken,
+                            socket.user.name,
+                            type,
+                            userId
+                        );
+                        console.log(`📲 Call push notification sent to ${receiver.name}`);
+                        
+                        // Wait a bit for user to open app
+                        await new Promise(resolve => setTimeout(resolve, 2000));
+                        
+                        // Check if user came online
+                        const newTargetSocketId = onlineUsers.get(to);
+                        if (newTargetSocketId) {
+                            // User came online, send call
+                            const callKey = getCallKey(userId, to);
+                            activeCalls.set(callKey, { startTime: Date.now(), type, callerId: userId, receiverId: to });
+                            
+                            io.to(to).emit('incomingCall', {
+                                from: userId,
+                                callerName: socket.user.name,
+                                offer,
+                                type
+                            });
+                            console.log(`📞 User came online, sent call`);
+                            return;
+                        }
+                    }
+                } catch (pushError) {
+                    console.error('Call push notification error:', pushError);
+                }
+                
                 socket.emit('callFailed', { reason: 'User is offline' });
                 
-                // Save as missed call
+                // Save as missed call and send missed call notification
                 try {
                     await Call.create({
                         callerId: userId,
@@ -226,6 +286,12 @@ const initializeSocket = (io) => {
                         status: 'missed',
                         duration: 0
                     });
+                    
+                    // Send missed call notification
+                    const receiver = await User.findById(to).select('fcmToken name');
+                    if (receiver?.fcmToken) {
+                        await sendMissedCallNotification(receiver.fcmToken, socket.user.name, type);
+                    }
                 } catch (err) {
                     console.error('Error saving missed call:', err);
                 }
@@ -257,6 +323,11 @@ const initializeSocket = (io) => {
             if (callData) {
                 callData.startTime = Date.now();
                 callData.answered = true;
+            }
+            
+            // Record call interaction for streak tracking
+            if (socket.user.coupleId) {
+                recordInteraction(socket.user.coupleId, 'call');
             }
             
             io.to(to).emit('callAnswered', {
@@ -445,17 +516,212 @@ const initializeSocket = (io) => {
         });
 
         // ===========================================
+        // Listen Together Events (Spotify Sync)
+        // ===========================================
+
+        // Start listen-together session
+        socket.on('listenTogether:start', (data) => {
+            const { partnerId, track } = data;
+            console.log(`🎵 ${socket.user.name} starting listen together session`);
+            
+            const partnerSocketId = onlineUsers.get(partnerId);
+            if (partnerSocketId) {
+                io.to(partnerSocketId).emit('listenTogether:invite', {
+                    from: userId,
+                    fromName: socket.user.name,
+                    track
+                });
+            }
+        });
+
+        // Accept listen-together invitation
+        socket.on('listenTogether:accept', (data) => {
+            const { partnerId, track } = data;
+            console.log(`🎵 ${socket.user.name} accepted listen together`);
+            
+            const partnerSocketId = onlineUsers.get(partnerId);
+            if (partnerSocketId) {
+                io.to(partnerSocketId).emit('listenTogether:accepted', {
+                    from: userId,
+                    fromName: socket.user.name,
+                    track
+                });
+            }
+            
+            // Also emit to self
+            socket.emit('listenTogether:started', { track });
+        });
+
+        // Decline listen-together invitation
+        socket.on('listenTogether:decline', (data) => {
+            const { partnerId } = data;
+            
+            const partnerSocketId = onlineUsers.get(partnerId);
+            if (partnerSocketId) {
+                io.to(partnerSocketId).emit('listenTogether:declined', {
+                    from: userId,
+                    fromName: socket.user.name
+                });
+            }
+        });
+
+        // Sync playback state
+        socket.on('listenTogether:sync', (data) => {
+            const { partnerId, isPlaying, position, track } = data;
+            
+            const partnerSocketId = onlineUsers.get(partnerId);
+            if (partnerSocketId) {
+                io.to(partnerSocketId).emit('listenTogether:syncState', {
+                    from: userId,
+                    isPlaying,
+                    position,
+                    track
+                });
+            }
+        });
+
+        // Play action
+        socket.on('listenTogether:play', (data) => {
+            const { partnerId, position } = data;
+            
+            const partnerSocketId = onlineUsers.get(partnerId);
+            if (partnerSocketId) {
+                io.to(partnerSocketId).emit('listenTogether:play', {
+                    from: userId,
+                    position
+                });
+            }
+        });
+
+        // Pause action
+        socket.on('listenTogether:pause', (data) => {
+            const { partnerId, position } = data;
+            
+            const partnerSocketId = onlineUsers.get(partnerId);
+            if (partnerSocketId) {
+                io.to(partnerSocketId).emit('listenTogether:pause', {
+                    from: userId,
+                    position
+                });
+            }
+        });
+
+        // Seek action
+        socket.on('listenTogether:seek', (data) => {
+            const { partnerId, position } = data;
+            
+            const partnerSocketId = onlineUsers.get(partnerId);
+            if (partnerSocketId) {
+                io.to(partnerSocketId).emit('listenTogether:seek', {
+                    from: userId,
+                    position
+                });
+            }
+        });
+
+        // End listen-together session
+        socket.on('listenTogether:end', (data) => {
+            const { partnerId } = data;
+            
+            const partnerSocketId = onlineUsers.get(partnerId);
+            if (partnerSocketId) {
+                io.to(partnerSocketId).emit('listenTogether:ended', {
+                    from: userId,
+                    fromName: socket.user.name
+                });
+            }
+        });
+
+        // ===========================================
+        // Mood Sync Events
+        // ===========================================
+
+        // Mood updated - notify partner in real-time
+        socket.on('moodUpdated', (data) => {
+            const { partnerId, mood, status, emoji } = data;
+            console.log(`💭 ${socket.user.name} updated mood to ${mood}`);
+            
+            const partnerSocketId = onlineUsers.get(partnerId);
+            if (partnerSocketId) {
+                io.to(partnerSocketId).emit('partnerMoodChanged', {
+                    from: userId,
+                    fromName: socket.user.name,
+                    mood,
+                    status,
+                    emoji,
+                    updatedAt: new Date()
+                });
+            }
+        });
+
+        // Request partner's current mood
+        socket.on('requestPartnerMood', (data) => {
+            const { partnerId } = data;
+            
+            const partnerSocketId = onlineUsers.get(partnerId);
+            if (partnerSocketId) {
+                io.to(partnerSocketId).emit('moodRequested', {
+                    from: userId,
+                    fromName: socket.user.name
+                });
+            }
+        });
+
+        // ===========================================
+        // Couple Theme Events
+        // ===========================================
+
+        // Theme updated - notify partner in real-time
+        socket.on('themeUpdated', (data) => {
+            const { partnerId, theme } = data;
+            console.log(`🎨 ${socket.user.name} updated couple theme`);
+            
+            const partnerSocketId = onlineUsers.get(partnerId);
+            if (partnerSocketId) {
+                io.to(partnerSocketId).emit('partnerThemeChanged', {
+                    from: userId,
+                    fromName: socket.user.name,
+                    theme,
+                    updatedAt: new Date()
+                });
+            }
+        });
+
+        // Theme reset - notify partner
+        socket.on('themeReset', (data) => {
+            const { partnerId } = data;
+            console.log(`🎨 ${socket.user.name} reset couple theme to default`);
+            
+            const partnerSocketId = onlineUsers.get(partnerId);
+            if (partnerSocketId) {
+                io.to(partnerSocketId).emit('partnerThemeReset', {
+                    from: userId,
+                    fromName: socket.user.name,
+                    updatedAt: new Date()
+                });
+            }
+        });
+
+        // ===========================================
         // Disconnect Event
         // ===========================================
 
-        socket.on('disconnect', () => {
+        socket.on('disconnect', async () => {
             console.log(`🔴 User disconnected: ${socket.user.name}`);
+
+            // Update lastSeen timestamp in database
+            const lastSeen = new Date();
+            try {
+                await User.findByIdAndUpdate(userId, { lastSeen });
+            } catch (err) {
+                console.error('Error updating lastSeen:', err);
+            }
 
             // Remove from online users
             onlineUsers.delete(userId);
 
-            // Broadcast offline status
-            io.emit('userOffline', { userId });
+            // Broadcast offline status with lastSeen timestamp
+            io.emit('userOffline', { userId, lastSeen });
         });
     });
 };

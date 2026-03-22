@@ -56,6 +56,18 @@ const memorySchema = new mongoose.Schema({
         default: ''
     },
 
+    // Location coordinates for map display
+    coordinates: {
+        latitude: {
+            type: Number,
+            default: null
+        },
+        longitude: {
+            type: Number,
+            default: null
+        }
+    },
+
     // Memory type/category
     category: {
         type: String,
@@ -97,6 +109,8 @@ memorySchema.pre('save', function(next) {
 // Index for efficient querying by couple
 memorySchema.index({ coupleId: 1, memoryDate: -1 });
 memorySchema.index({ coupleId: 1, category: 1 });
+// Index for memories with coordinates
+memorySchema.index({ coupleId: 1, 'coordinates.latitude': 1, 'coordinates.longitude': 1 });
 
 // ===========================================
 // Static Methods

@@ -132,6 +132,7 @@ const handleUploadError = (err, req, res, next) => {
 };
 
 module.exports = {
+    upload,
     uploadImage,
     uploadVoice,
     uploadVideo,

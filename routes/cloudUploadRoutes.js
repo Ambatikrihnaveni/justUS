@@ -10,6 +10,7 @@ const router = express.Router();
 // Import middleware
 const { protect } = require('../middleware/authMiddleware');
 const Message = require('../models/Message');
+const { queueTranscription, isTranscriptionAvailable: checkTranscription } = require('../services/transcriptionService');
 
 // Check if Cloudinary is configured
 const isCloudinaryConfigured = () => {
@@ -138,11 +139,19 @@ router.post('/voice', (req, res, next) => {
                     message: 'Voice message',
                     type: 'voice',
                     filePath: fileUrl,
-                    duration: parseFloat(req.body.duration) || 0
+                    duration: parseFloat(req.body.duration) || 0,
+                    transcription: {
+                        status: checkTranscription() ? 'pending' : 'not_available'
+                    }
                 });
 
                 await newMessage.populate('senderId', 'name avatar');
                 await newMessage.populate('receiverId', 'name avatar');
+
+                // Queue transcription asynchronously
+                if (checkTranscription()) {
+                    queueTranscription(newMessage._id);
+                }
 
                 const io = req.app.get('io');
                 if (io) {

@@ -15,7 +15,8 @@ const {
     editMessage,
     unsendMessage,
     deleteForBoth,
-    deleteMessage
+    deleteMessage,
+    toggleReaction
 } = require('../controllers/messageController');
 
 // Import auth middleware
@@ -51,5 +52,8 @@ router.delete('/:messageId/both', deleteForBoth);
 
 // DELETE /api/messages/:messageId - Delete message (delete for me only)
 router.delete('/:messageId', deleteMessage);
+
+// POST /api/messages/:messageId/reaction - Toggle reaction on message
+router.post('/:messageId/reaction', toggleReaction);
 
 module.exports = router;

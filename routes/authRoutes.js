@@ -11,7 +11,8 @@ const {
     signup, 
     login, 
     getMe, 
-    getPartner 
+    getPartner,
+    updateFcmToken
 } = require('../controllers/authController');
 
 // Import auth middleware
@@ -36,5 +37,8 @@ router.get('/me', protect, getMe);
 
 // GET /api/auth/partner - Get partner user
 router.get('/partner', protect, getPartner);
+
+// PUT /api/auth/fcm-token - Update FCM token for push notifications
+router.put('/fcm-token', protect, updateFcmToken);
 
 module.exports = router;

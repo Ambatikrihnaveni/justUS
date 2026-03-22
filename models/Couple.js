@@ -156,6 +156,41 @@ const coupleSchema = new mongoose.Schema({
         default: 'neutral'
     },
 
+    // ===========================================
+    // Couple Streak Tracking
+    // ===========================================
+    
+    // Current consecutive days streak
+    currentStreak: {
+        type: Number,
+        default: 0
+    },
+
+    // Longest streak ever achieved
+    longestStreak: {
+        type: Number,
+        default: 0
+    },
+
+    // Last interaction date (for streak calculation)
+    lastInteractionDate: {
+        type: Date,
+        default: null
+    },
+
+    // Interaction history for the current day
+    todayInteractions: {
+        chat: { type: Boolean, default: false },
+        call: { type: Boolean, default: false },
+        activity: { type: Boolean, default: false }
+    },
+
+    // Streak milestones achieved
+    streakMilestones: [{
+        milestone: Number,
+        achievedAt: Date
+    }],
+
     // Whether the couple space is complete (both partners joined)
     isComplete: {
         type: Boolean,

@@ -164,8 +164,8 @@ const getCoupleProfile = async (req, res) => {
         const couple = await Couple.findOne({
             $or: [{ partner1: userId }, { partner2: userId }]
         })
-        .populate('partner1', 'name nickname email avatar dateOfBirth gender phoneNumber city country bio preferences mood')
-        .populate('partner2', 'name nickname email avatar dateOfBirth gender phoneNumber city country bio preferences mood');
+        .populate('partner1', 'name nickname email avatar dateOfBirth gender phoneNumber city country bio preferences mood lastSeen')
+        .populate('partner2', 'name nickname email avatar dateOfBirth gender phoneNumber city country bio preferences mood lastSeen');
 
         if (!couple) {
             return res.status(404).json({
@@ -235,8 +235,8 @@ const updateCoupleProfile = async (req, res) => {
         await couple.save();
 
         // Populate partners for response
-        await couple.populate('partner1', 'name nickname email avatar dateOfBirth gender phoneNumber city country bio preferences mood');
-        await couple.populate('partner2', 'name nickname email avatar dateOfBirth gender phoneNumber city country bio preferences mood');
+        await couple.populate('partner1', 'name nickname email avatar dateOfBirth gender phoneNumber city country bio preferences mood lastSeen');
+        await couple.populate('partner2', 'name nickname email avatar dateOfBirth gender phoneNumber city country bio preferences mood lastSeen');
 
         res.status(200).json({
             success: true,

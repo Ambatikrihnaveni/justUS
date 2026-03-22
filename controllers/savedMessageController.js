@@ -7,6 +7,7 @@
 const SavedMessage = require('../models/SavedMessage');
 const Message = require('../models/Message');
 const User = require('../models/User');
+const TimelineEvent = require('../models/TimelineEvent');
 
 // ===========================================
 // Save a message to memories
@@ -333,11 +334,188 @@ const togglePin = async (req, res) => {
     }
 };
 
+// ===========================================
+// Get "Today in Our Love" memories
+// GET /api/saved-messages/today-in-our-love
+// Returns memories from same date in previous years
+// ===========================================
+
+const getTodayInOurLove = async (req, res) => {
+    try {
+        const userId = req.user._id;
+
+        // Get user's couple ID
+        const user = await User.findById(userId);
+        if (!user || !user.coupleId) {
+            return res.json({
+                success: true,
+                memories: [],
+                message: 'You must be in a couple to view memories'
+            });
+        }
+
+        const coupleId = user.coupleId;
+        const today = new Date();
+        const currentMonth = today.getMonth() + 1; // MongoDB uses 1-12
+        const currentDay = today.getDate();
+        const currentYear = today.getFullYear();
+
+        // Find saved messages from same date in previous years
+        const savedMessages = await SavedMessage.aggregate([
+            {
+                $match: {
+                    coupleId: coupleId,
+                    'messageData.originalDate': { $exists: true, $ne: null }
+                }
+            },
+            {
+                $addFields: {
+                    memoryMonth: { $month: '$messageData.originalDate' },
+                    memoryDay: { $dayOfMonth: '$messageData.originalDate' },
+                    memoryYear: { $year: '$messageData.originalDate' }
+                }
+            },
+            {
+                $match: {
+                    memoryMonth: currentMonth,
+                    memoryDay: currentDay,
+                    memoryYear: { $lt: currentYear }
+                }
+            },
+            {
+                $sort: { 'messageData.originalDate': -1 }
+            },
+            {
+                $limit: 20
+            }
+        ]);
+
+        // Find timeline events from same date in previous years
+        const timelineEvents = await TimelineEvent.aggregate([
+            {
+                $match: {
+                    coupleId: coupleId,
+                    eventDate: { $exists: true, $ne: null }
+                }
+            },
+            {
+                $addFields: {
+                    eventMonth: { $month: '$eventDate' },
+                    eventDay: { $dayOfMonth: '$eventDate' },
+                    eventYear: { $year: '$eventDate' }
+                }
+            },
+            {
+                $match: {
+                    eventMonth: currentMonth,
+                    eventDay: currentDay,
+                    eventYear: { $lt: currentYear }
+                }
+            },
+            {
+                $sort: { eventDate: -1 }
+            },
+            {
+                $limit: 20
+            }
+        ]);
+
+        // Combine and format the results
+        const memories = [];
+
+        // Add saved messages
+        for (const msg of savedMessages) {
+            const yearsAgo = currentYear - msg.memoryYear;
+            memories.push({
+                _id: msg._id,
+                type: 'message',
+                title: msg.note || getMessagePreview(msg.messageData),
+                description: msg.messageData.message || '',
+                photo: msg.messageData.type === 'image' ? msg.messageData.filePath : 
+                       msg.messageData.type === 'gif' ? msg.messageData.gifUrl : null,
+                mediaType: msg.messageData.type,
+                originalDate: msg.messageData.originalDate,
+                yearsAgo,
+                category: msg.category,
+                senderName: msg.messageData.senderName,
+                isPinned: msg.isPinned
+            });
+        }
+
+        // Add timeline events
+        for (const event of timelineEvents) {
+            const yearsAgo = currentYear - event.eventYear;
+            memories.push({
+                _id: event._id,
+                type: 'timeline',
+                title: event.title,
+                description: event.description || '',
+                photo: event.image || null,
+                mediaType: event.image ? 'image' : null,
+                originalDate: event.eventDate,
+                yearsAgo,
+                eventType: event.eventType,
+                icon: event.icon,
+                location: event.location?.name || null,
+                isMilestone: event.isMilestone
+            });
+        }
+
+        // Sort by date (most recent first within same day)
+        memories.sort((a, b) => new Date(b.originalDate) - new Date(a.originalDate));
+
+        res.json({
+            success: true,
+            date: {
+                month: currentMonth,
+                day: currentDay,
+                formatted: today.toLocaleDateString('en-US', { month: 'long', day: 'numeric' })
+            },
+            count: memories.length,
+            memories
+        });
+
+    } catch (error) {
+        console.error('Get Today in Our Love error:', error);
+        res.status(500).json({
+            success: false,
+            message: 'Failed to get memories',
+            error: error.message
+        });
+    }
+};
+
+// Helper function to get preview text for a message
+const getMessagePreview = (messageData) => {
+    if (!messageData) return 'Memory';
+    
+    switch (messageData.type) {
+        case 'text':
+            return messageData.message?.substring(0, 50) || 'Text message';
+        case 'image':
+            return '📷 Photo';
+        case 'video':
+        case 'videoNote':
+            return '🎬 Video';
+        case 'voice':
+            return '🎤 Voice message';
+        case 'gif':
+            return '🎭 GIF';
+        case 'file':
+            return `📄 ${messageData.fileName || 'File'}`;
+        case 'location':
+            return '📍 Location';
+        default:
+            return 'Memory';
+    }
+};
+
 module.exports = {
     saveMessage,
     getSavedMessages,
     updateSavedMessage,
     deleteSavedMessage,
     checkIfSaved,
-    togglePin
+    togglePin,
+    getTodayInOurLove
 };

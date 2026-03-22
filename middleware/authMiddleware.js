@@ -41,6 +41,9 @@ const protect = async (req, res, next) => {
                 });
             }
 
+            // Update lastSeen timestamp (fire and forget for performance)
+            User.findByIdAndUpdate(decoded.userId, { lastSeen: new Date() }).exec();
+
             // Continue to the next middleware/route
             next();
         } catch (error) {

@@ -98,7 +98,10 @@ app.get('/favicon.ico', (req, res) => res.status(204).end());
 // Connect to MongoDB
 const connectDB = async () => {
     try {
-        const conn = await mongoose.connect(process.env.MONGODB_URI);
+        const conn = await mongoose.connect(process.env.MONGODB_URI, {
+            useNewUrlParser: true,
+            useUnifiedTopology: true
+        });
         console.log(`✅ MongoDB Connected: ${conn.connection.host}`);
     } catch (error) {
         console.error(`❌ MongoDB Connection Error: ${error.message}`);
@@ -133,15 +136,38 @@ const uploadRoutes = require('./routes/cloudUploadRoutes');
 const callRoutes = require('./routes/callRoutes');
 const coupleRoutes = require('./routes/coupleRoutes');
 const savedMessageRoutes = require('./routes/savedMessageRoutes');
+const dailyQuestionRoutes = require('./routes/dailyQuestionRoutes');
+const timelineRoutes = require('./routes/timelineRoutes');
+const loveLetterRoutes = require('./routes/loveLetterRoutes');
+const calendarRoutes = require('./routes/calendarRoutes');
+const scheduledMessageRoutes = require('./routes/scheduledMessageRoutes');
+const loveMeterRoutes = require('./routes/loveMeterRoutes');
+const memoryMapRoutes = require('./routes/memoryMapRoutes');
+const quizRoutes = require('./routes/quizRoutes');
+const playlistRoutes = require('./routes/playlistRoutes');
+const spotifyRoutes = require('./routes/spotifyRoutes');
+const moodRoutes = require('./routes/moodRoutes');
+const lockRoutes = require('./routes/lockRoutes');
+const streakRoutes = require('./routes/streakRoutes');
+const loveStoryRoutes = require('./routes/loveStoryRoutes');
+const coupleThemeRoutes = require('./routes/coupleThemeRoutes');
+const transcriptionRoutes = require('./routes/transcriptionRoutes');
+const coupleGoalRoutes = require('./routes/coupleGoalRoutes');
+const activityHeatmapRoutes = require('./routes/activityHeatmapRoutes');
+const silentCareRoutes = require('./routes/silentCareRoutes');
 
 // ===========================================
 // Import Socket Handler
 // ===========================================
 
 const { initializeSocket } = require('./sockets/socketHandler');
+const { startScheduler } = require('./services/messageScheduler');
 
 // Initialize socket handlers with authentication
 initializeSocket(io);
+
+// Store io globally for services (like transcription)
+global.io = io;
 
 // ===========================================
 // Routes
@@ -163,6 +189,25 @@ app.use('/api/upload', uploadRoutes);
 app.use('/api/calls', callRoutes);
 app.use('/api/couple', coupleRoutes);
 app.use('/api/saved-messages', savedMessageRoutes);
+app.use('/api/daily-question', dailyQuestionRoutes);
+app.use('/api/timeline', timelineRoutes);
+app.use('/api/love-letters', loveLetterRoutes);
+app.use('/api/calendar', calendarRoutes);
+app.use('/api/scheduled-messages', scheduledMessageRoutes);
+app.use('/api/love-meter', loveMeterRoutes);
+app.use('/api/memory-map', memoryMapRoutes);
+app.use('/api/quiz', quizRoutes);
+app.use('/api/playlist', playlistRoutes);
+app.use('/api/spotify', spotifyRoutes);
+app.use('/api/mood', moodRoutes);
+app.use('/api/lock', lockRoutes);
+app.use('/api/streak', streakRoutes);
+app.use('/api/love-story', loveStoryRoutes);
+app.use('/api/couple-theme', coupleThemeRoutes);
+app.use('/api/transcription', transcriptionRoutes);
+app.use('/api/couple-goals', coupleGoalRoutes);
+app.use('/api/activity-heatmap', activityHeatmapRoutes);
+app.use('/api/silent-care', silentCareRoutes);
 
 // ===========================================
 // Error Handling Middleware
@@ -198,6 +243,9 @@ connectDB().then(() => {
         console.log(`📱 Mobile URL: http://10.247.230.173:${PORT}`);
         console.log(`🔌 Socket.io ready for connections`);
         console.log('===========================================');
+        
+        // Start the message scheduler
+        startScheduler(io);
     });
 });
 

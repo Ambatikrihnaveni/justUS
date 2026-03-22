@@ -7,6 +7,7 @@
 const Message = require('../models/Message');
 const User = require('../models/User');
 const Couple = require('../models/Couple');
+const { recordInteraction } = require('./streakController');
 
 // ===========================================
 // Helper: Verify users are in same couple
@@ -63,7 +64,8 @@ const getChatHistory = async (req, res) => {
         })
         .sort({ createdAt: 1 }) // Sort by oldest first
         .populate('senderId', 'name avatar')
-        .populate('receiverId', 'name avatar');
+        .populate('receiverId', 'name avatar')
+        .populate('reactions.userId', 'name avatar');
 
         // Mark messages as seen (messages received by current user)
         await Message.updateMany(
@@ -95,7 +97,7 @@ const getChatHistory = async (req, res) => {
 
 const sendMessage = async (req, res) => {
     try {
-        const { receiverId, message, type = 'text' } = req.body;
+        const { receiverId, message, type = 'text', isDisappearing = false, disappearAfter = null } = req.body;
         const senderId = req.user._id;
 
         // Validate required fields
@@ -103,6 +105,15 @@ const sendMessage = async (req, res) => {
             return res.status(400).json({
                 success: false,
                 message: 'Receiver and message content are required'
+            });
+        }
+
+        // Validate disappearAfter if disappearing message
+        const validTimers = [10000, 60000, 3600000]; // 10s, 1min, 1hour
+        if (isDisappearing && disappearAfter && !validTimers.includes(disappearAfter)) {
+            return res.status(400).json({
+                success: false,
+                message: 'Invalid disappear timer. Use 10000, 60000, or 3600000 milliseconds.'
             });
         }
 
@@ -124,17 +135,32 @@ const sendMessage = async (req, res) => {
             });
         }
 
+        // Calculate expiry time for disappearing messages
+        let expiresAt = null;
+        if (isDisappearing && disappearAfter) {
+            expiresAt = new Date(Date.now() + disappearAfter);
+        }
+
         // Create the message
         const newMessage = await Message.create({
             senderId,
             receiverId,
             message,
-            type
+            type,
+            isDisappearing,
+            disappearAfter: isDisappearing ? disappearAfter : null,
+            expiresAt
         });
 
         // Populate sender and receiver info
         await newMessage.populate('senderId', 'name avatar');
         await newMessage.populate('receiverId', 'name avatar');
+
+        // Record interaction for streak tracking
+        const sender = await User.findById(senderId);
+        if (sender?.coupleId) {
+            recordInteraction(sender.coupleId, 'chat');
+        }
 
         // Emit socket event for real-time delivery
         // Get socket.io instance from app
@@ -142,6 +168,47 @@ const sendMessage = async (req, res) => {
         if (io) {
             // Emit to receiver's room
             io.to(receiverId.toString()).emit('newMessage', newMessage);
+        }
+
+        // Optional auto-reply when receiver enabled Silent Care Mode.
+        const silentCareStatus = receiver.silentCare?.status || 'available';
+        const autoReplyEnabled = !!receiver.silentCare?.autoReplyEnabled;
+        const shouldAutoReply = autoReplyEnabled && ['busy', 'working', 'sleeping'].includes(silentCareStatus);
+
+        if (shouldAutoReply) {
+            const AUTO_REPLY_COOLDOWN_MS = 30 * 60 * 1000; // 30 minutes
+            const lastAutoReply = await Message.findOne({
+                senderId: receiverId,
+                receiverId: senderId,
+                isAutoReply: true
+            }).sort({ createdAt: -1 });
+
+            const canSendAutoReply =
+                !lastAutoReply ||
+                (Date.now() - new Date(lastAutoReply.createdAt).getTime()) > AUTO_REPLY_COOLDOWN_MS;
+
+            if (canSendAutoReply) {
+                const autoReplyText =
+                    receiver.silentCare?.autoReplyMessage?.trim() ||
+                    "I'm busy right now, will talk later ❤️";
+
+                const autoReplyMessage = await Message.create({
+                    senderId: receiverId,
+                    receiverId: senderId,
+                    message: autoReplyText,
+                    type: 'text',
+                    isAutoReply: true,
+                    delivered: true,
+                    deliveredAt: new Date()
+                });
+
+                await autoReplyMessage.populate('senderId', 'name avatar');
+                await autoReplyMessage.populate('receiverId', 'name avatar');
+
+                if (io) {
+                    io.to(senderId.toString()).emit('newMessage', autoReplyMessage);
+                }
+            }
         }
 
         res.status(201).json({
@@ -468,6 +535,119 @@ const deleteMessage = async (req, res) => {
     }
 };
 
+// ===========================================
+// Add/Toggle Reaction to Message
+// POST /api/messages/:messageId/reaction
+// Adds or removes a reaction from a message
+// ===========================================
+
+const toggleReaction = async (req, res) => {
+    try {
+        const { messageId } = req.params;
+        const { emoji } = req.body;
+        const userId = req.user._id;
+
+        if (!emoji) {
+            return res.status(400).json({
+                success: false,
+                message: 'Emoji is required'
+            });
+        }
+
+        // Find the message
+        const message = await Message.findById(messageId);
+
+        if (!message) {
+            return res.status(404).json({
+                success: false,
+                message: 'Message not found'
+            });
+        }
+
+        // Check if user is sender or receiver (only couple members can react)
+        const isSender = message.senderId.toString() === userId.toString();
+        const isReceiver = message.receiverId.toString() === userId.toString();
+
+        if (!isSender && !isReceiver) {
+            return res.status(403).json({
+                success: false,
+                message: 'You cannot react to this message'
+            });
+        }
+
+        // Check if message is deleted
+        if (message.isDeleted || message.isUnsent) {
+            return res.status(400).json({
+                success: false,
+                message: 'Cannot react to a deleted message'
+            });
+        }
+
+        // Initialize reactions array if not exists
+        if (!message.reactions) {
+            message.reactions = [];
+        }
+
+        // Check if user already has this reaction
+        const existingReactionIndex = message.reactions.findIndex(
+            r => r.userId.toString() === userId.toString() && r.emoji === emoji
+        );
+
+        let action = 'added';
+
+        if (existingReactionIndex !== -1) {
+            // Remove the reaction (toggle off)
+            message.reactions.splice(existingReactionIndex, 1);
+            action = 'removed';
+        } else {
+            // Remove any existing reaction from this user (one reaction per user)
+            message.reactions = message.reactions.filter(
+                r => r.userId.toString() !== userId.toString()
+            );
+            // Add new reaction
+            message.reactions.push({
+                userId,
+                emoji,
+                createdAt: new Date()
+            });
+        }
+
+        await message.save();
+
+        // Populate user info for reactions and return
+        await message.populate('senderId', 'name avatar');
+        await message.populate('receiverId', 'name avatar');
+        await message.populate('reactions.userId', 'name avatar');
+
+        // Emit socket event for real-time update
+        const io = req.app.get('io');
+        if (io) {
+            const reactionUpdate = {
+                messageId: message._id,
+                reactions: message.reactions,
+                action,
+                reactedBy: userId,
+                emoji
+            };
+            io.to(message.receiverId._id.toString()).emit('messageReaction', reactionUpdate);
+            io.to(message.senderId._id.toString()).emit('messageReaction', reactionUpdate);
+        }
+
+        res.status(200).json({
+            success: true,
+            message: `Reaction ${action}`,
+            data: message
+        });
+
+    } catch (error) {
+        console.error('Toggle reaction error:', error);
+        res.status(500).json({
+            success: false,
+            message: 'Error updating reaction'
+        });
+    }
+};
+
 module.exports = {
     getChatHistory,
     sendMessage,
@@ -476,5 +656,6 @@ module.exports = {
     editMessage,
     unsendMessage,
     deleteForBoth,
-    deleteMessage
+    deleteMessage,
+    toggleReaction
 };

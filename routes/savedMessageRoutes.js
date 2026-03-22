@@ -12,11 +12,15 @@ const {
     updateSavedMessage,
     deleteSavedMessage,
     checkIfSaved,
-    togglePin
+    togglePin,
+    getTodayInOurLove
 } = require('../controllers/savedMessageController');
 
 // All routes require authentication
 router.use(protect);
+
+// Get "Today in Our Love" memories (same date, previous years)
+router.get('/today-in-our-love', getTodayInOurLove);
 
 // Save a message to memories
 router.post('/', saveMessage);
