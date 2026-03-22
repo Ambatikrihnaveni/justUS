@@ -12,22 +12,25 @@ let firebaseInitialized = false;
 const formatPrivateKey = (key) => {
     if (!key) return null;
     
-    // If key is already properly formatted with real newlines, return it
-    if (key.includes('-----BEGIN') && key.includes('\n')) {
-        return key;
+    // Remove any surrounding quotes that Render might add
+    let formattedKey = key.trim();
+    if ((formattedKey.startsWith('"') && formattedKey.endsWith('"')) ||
+        (formattedKey.startsWith("'") && formattedKey.endsWith("'"))) {
+        formattedKey = formattedKey.slice(1, -1);
     }
     
-    // Replace escaped newlines (\\n or \n as literal text) with actual newlines
-    let formattedKey = key
-        .replace(/\\\\n/g, '\n')  // Handle double-escaped \\n
-        .replace(/\\n/g, '\n')    // Handle single-escaped \n
-        .replace(/\n\n/g, '\n');  // Fix any double newlines
+    // Replace all variants of escaped newlines with actual newlines
+    formattedKey = formattedKey
+        .split('\\n').join('\n')      // Handle \n as literal text (most common on Render)
+        .split('\\\\n').join('\n')    // Handle \\n
+        .replace(/\r\n/g, '\n')       // Normalize Windows line endings
+        .replace(/\n\n+/g, '\n');     // Remove duplicate newlines
     
-    // If the key doesn't have proper BEGIN/END markers after formatting, 
-    // it might be the raw key without headers - wrap it
-    if (!formattedKey.includes('-----BEGIN')) {
-        formattedKey = `-----BEGIN PRIVATE KEY-----\n${formattedKey}\n-----END PRIVATE KEY-----\n`;
-    }
+    // Log for debugging (redacted)
+    const hasBegin = formattedKey.includes('-----BEGIN');
+    const hasEnd = formattedKey.includes('-----END');
+    const hasNewlines = formattedKey.includes('\n');
+    console.log(`🔑 Private key format check: BEGIN=${hasBegin}, END=${hasEnd}, newlines=${hasNewlines}, length=${formattedKey.length}`);
     
     return formattedKey;
 };
