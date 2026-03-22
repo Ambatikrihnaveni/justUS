@@ -327,7 +327,7 @@ const userSchema = new mongoose.Schema({
     // Last seen timestamp (updated on user activity)
     lastSeen: {
         type: Date,
-        default: Date.now
+        default: null  // null until first socket disconnect
     },
 
     // Firebase Cloud Messaging token for push notifications

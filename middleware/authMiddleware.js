@@ -41,8 +41,8 @@ const protect = async (req, res, next) => {
                 });
             }
 
-            // Update lastSeen timestamp (fire and forget for performance)
-            User.findByIdAndUpdate(decoded.userId, { lastSeen: new Date() }).exec();
+            // Note: lastSeen is now only updated on socket disconnect (socketHandler.js)
+            // This ensures lastSeen reflects when user actually went offline, not last API activity
 
             // Continue to the next middleware/route
             next();

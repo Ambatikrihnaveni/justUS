@@ -3,15 +3,18 @@
 // Periodically checks and sends scheduled messages
 // Also handles disappearing message expiry notifications
 // And daily streak resets
+// And reminder notifications
 // ===========================================
 
 const { processDueMessages } = require('../controllers/scheduledMessageController');
 const Message = require('../models/Message');
 const Couple = require('../models/Couple');
+const { runAllReminderChecks, clearOldReminders } = require('./reminderService');
 
 let schedulerInterval = null;
 let expiryInterval = null;
 let streakInterval = null;
+let reminderInterval = null;
 let io = null;
 
 // ===========================================
@@ -27,20 +30,33 @@ const startScheduler = (socketIo) => {
     const EXPIRY_CHECK_INTERVAL = 5 * 1000; // 5 seconds
     // Check for streak resets every hour
     const STREAK_CHECK_INTERVAL = 60 * 60 * 1000; // 1 hour
+    // Check for reminders every 30 minutes
+    const REMINDER_CHECK_INTERVAL = 30 * 60 * 1000; // 30 minutes
     
     console.log('📅 Message scheduler started (checking every 30 seconds)');
     console.log('⏱️ Disappearing message checker started (checking every 5 seconds)');
     console.log('🔥 Streak checker started (checking every hour)');
+    console.log('🔔 Reminder checker started (checking every 30 minutes)');
     
     // Initial checks
     checkAndSendMessages();
     checkExpiringMessages();
     checkStreakResets();
     
+    // Delay reminder check by 1 minute to let server fully start
+    setTimeout(() => {
+        runAllReminderChecks();
+        clearOldReminders();
+    }, 60 * 1000);
+    
     // Set up intervals
     schedulerInterval = setInterval(checkAndSendMessages, CHECK_INTERVAL);
     expiryInterval = setInterval(checkExpiringMessages, EXPIRY_CHECK_INTERVAL);
     streakInterval = setInterval(checkStreakResets, STREAK_CHECK_INTERVAL);
+    reminderInterval = setInterval(() => {
+        runAllReminderChecks();
+        clearOldReminders();
+    }, REMINDER_CHECK_INTERVAL);
 };
 
 // ===========================================
@@ -62,6 +78,11 @@ const stopScheduler = () => {
         clearInterval(streakInterval);
         streakInterval = null;
         console.log('🔥 Streak checker stopped');
+    }
+    if (reminderInterval) {
+        clearInterval(reminderInterval);
+        reminderInterval = null;
+        console.log('🔔 Reminder checker stopped');
     }
 };
 
